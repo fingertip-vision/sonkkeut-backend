@@ -74,3 +74,10 @@ class UsageSession(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+
+
+class UsageReceipt(Base):
+    """An anonymous per-session nonce prevents duplicate offline retries. Never a device identifier."""
+    __tablename__ = "usage_receipts"
+    event_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64))

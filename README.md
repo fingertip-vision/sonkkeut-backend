@@ -9,6 +9,7 @@
 | F-15 익명 사용 통계 | 앱이 주문 한 번마다 단계별 성공 여부·걸린 시간만 보냄 (영상·음성·위치·기기 정보 없음) | `/api/stats…` |
 | 모델 버전 안내 | 앱이 새 모델이 있는지 확인 | `/api/models/latest` |
 | 점주 웹 | 매장 만들기, 메뉴 표 편집(엑셀 붙여넣기), 매장 통계 | `/owner`, `/dashboard` |
+| 시연 키오스크 | 메뉴·옵션·장바구니·결제 화면의 3개 배치, 실제 결제 없음 | `/kiosk?flow=1` (2, 3도 지원) |
 
 API 문서는 서버의 `/docs`에서 바로 시험해 볼 수 있습니다 (FastAPI 자동 문서).
 
@@ -26,7 +27,7 @@ API 문서는 서버의 `/docs`에서 바로 시험해 볼 수 있습니다 (Fas
 
 ```json
 {
-  "store_code": "EWHZ33", "app_version": "0.1.0", "model_version": "2026.10.02",
+  "event_id": "order-session-001", "store_code": "EWHZ33", "app_version": "0.1.0", "model_version": "2026.10.02",
   "completed": true, "duration_s": 42.5,
   "steps": [
     {"screen_type": "menu", "target_kind": "tab", "result": "success", "reach_s": 3.2, "hints": 4},
@@ -54,7 +55,17 @@ python -m pytest -q                                      # 테스트 (SQLite)
 ```
 
 DB는 `DATABASE_URL`이 없으면 `sonkkeut.db`(SQLite) 파일을 쓰고, 있으면 Postgres를 씁니다. 테이블은 시작할 때 자동으로 만듭니다.
-테스트는 SQLite와 Postgres 16 양쪽에서 통과했습니다.
+이번 변경은 SQLite로 API 테스트 12개를 통과했습니다. Postgres의 실제 운영 배포 검증은 아직 수행하지 않았습니다.
+
+### 모바일 계약
+
+통계 세션에 `event_id`를 넣으면 네트워크 복구 후 같은 세션을 재전송해도 한 번만 집계합니다. 같은 ID에 다른 내용을 보내면 409를 반환합니다. 영상·음성·위치·기기 ID 같은 미정의 필드는 422로 거부하고, NaN 통계 및 공백 메뉴 이름도 허용하지 않습니다.
+
+`GET /api/models/latest`는 APK에 포함한 모델 3개의 이름·버전·SHA-256·크기를 반환합니다. 모델 정보는 `app/static/model-manifest.json`과 AI 저장소의 파일이 일치합니다. 로컬에서는 모델 다운로드 URL이 null이고 앱은 번들 모델을 사용합니다.
+
+시연 매장은 `python scripts/seed_demo.py --url http://127.0.0.1:18080 --credentials /LOCAL/PRIVATE/demo-store.json`으로 만들 수 있습니다. `--credentials`는 저장소 밖의 비공개 경로로 지정하세요. 매장 키는 이 파일에만 저장하며 콘솔에는 코드·메뉴 버전·항목 수만 출력합니다.
+
+사용자 요청에 따라 현재 서버는 로컬에서 실행 중이며 Render의 서비스·운영 DB 생성은 아직 수행하지 않았습니다.
 
 ## 배포 (Render, 무료)
 

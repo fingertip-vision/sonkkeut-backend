@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class OptionGroup(BaseModel):
@@ -18,7 +18,7 @@ class MenuItemIn(BaseModel):
     options: list[OptionGroup] = Field(default_factory=list, max_length=10)
     sold_out: bool = False
 
-    @field_validator("name", "category")
+    @field_validator("name", "category", mode="before")
     @classmethod
     def strip(cls, v: str) -> str:
         return v.strip()
@@ -89,6 +89,7 @@ ScreenType = Literal["menu", "option", "cart", "payment", "start", "unknown"]
 
 class StepIn(BaseModel):
     """누르기 한 번의 기록. 영상·음성·좌표는 보내지 않는다"""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     screen_type: ScreenType = "unknown"
     target_kind: Literal["tab", "menu", "price", "button", "back", "unknown"] = "unknown"
@@ -99,6 +100,8 @@ class StepIn(BaseModel):
 
 
 class SessionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    event_id: str | None = Field(None, min_length=12, max_length=80, pattern=r"^[A-Za-z0-9-]+$")
     store_code: str | None = Field(None, max_length=12)
     app_version: str = Field("", max_length=20)
     model_version: str = Field("", max_length=20)

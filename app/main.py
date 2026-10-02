@@ -13,6 +13,7 @@ import hmac
 import math
 import secrets
 import time
+import json
 from contextlib import asynccontextmanager
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -25,9 +26,10 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from . import config
-from .db import MenuItem, SessionLocal, Store, UsageSession, init_db, now
+from .db import MenuItem, SessionLocal, Store, UsageSession, UsageReceipt, init_db, now
 from .schemas import (MenuItemOut, MenuOut, MenuReplace, ModelInfo, NearbyStore, SessionIn, StoreCreate,
                       StoreCreated, StoreOut, StoreUpdate, Summary)
 
@@ -118,6 +120,11 @@ def owner_page():
 @app.get("/dashboard", include_in_schema=False)
 def dashboard_page():
     return FileResponse(STATIC / "dashboard.html")
+
+
+@app.get("/kiosk", include_in_schema=False)
+def kiosk_page():
+    return FileResponse(STATIC / "kiosk.html")
 
 
 # ---------- 매장 (F-14) ----------
@@ -241,13 +248,31 @@ def _rate_limit(request: Request):
 def post_session(body: SessionIn, request: Request, db: Session = Depends(get_db)):
     """앱이 주문 한 번을 마치거나 그만둘 때 보낸다. 개인을 식별할 수 있는 정보는 받지 않는다."""
     _rate_limit(request)
+    payload_hash = hashlib.sha256(json.dumps(body.model_dump(exclude={"event_id"}), sort_keys=True).encode()).hexdigest()
+    if body.event_id:
+        receipt = db.get(UsageReceipt, body.event_id)
+        if receipt:
+            if receipt.payload_hash != payload_hash:
+                raise HTTPException(409, "다른 통계에 같은 이벤트 ID를 사용할 수 없습니다")
+            return {"ok": True, "duplicate": True}
     code = body.store_code.upper() if body.store_code else None
     if code and db.scalar(select(Store.id).where(Store.code == code)) is None:
         code = None  # 모르는 매장 코드는 버리고 기록만 남긴다
+    # Insert only after lookups: autoflush during a lookup must not bypass the
+    # commit's duplicate-retry handling when two requests arrive together.
+    if body.event_id:
+        db.add(UsageReceipt(event_id=body.event_id, payload_hash=payload_hash))
     db.add(UsageSession(store_code=code, app_version=body.app_version, model_version=body.model_version,
                         completed=body.completed, duration_s=body.duration_s, n_steps=len(body.steps),
                         steps=[s.model_dump() for s in body.steps]))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        receipt = db.get(UsageReceipt, body.event_id) if body.event_id else None
+        if receipt and receipt.payload_hash == payload_hash:
+            return {"ok": True, "duplicate": True}
+        raise HTTPException(409, "통계 기록 충돌")
     return {"ok": True}
 
 
@@ -303,8 +328,12 @@ def summary(store_code: str | None = None, days: int = Query(30, ge=1, le=365), 
 # ---------- 모델 버전 ----------
 @app.get("/api/models/latest", response_model=ModelInfo, tags=["모델"])
 def latest_model():
-    """앱이 시작할 때 확인한다. 앱에 든 모델보다 새 버전이면 files를 내려받는다(선택 기능)."""
+    """앱에 포함된 모델과 서버 버전을 비교하는 정보. 현재 앱은 APK에 포함된 모델을 사용한다."""
     names = ["m1_screen_corners_int8.onnx", "m2_screen_elements_int8.onnx", "m1r_corner_refiner.onnx"]
-    files = [{"name": n, "url": f"{config.MODEL_BASE_URL.rstrip('/')}/{n}" if config.MODEL_BASE_URL else None}
+    manifest_path = Path(__file__).parent / "static" / "model-manifest.json"
+    packaged = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    records = {m["name"]: m for m in packaged.get("models", [])}
+    files = [{"name": n, "url": f"{config.MODEL_BASE_URL.rstrip('/')}/{n}" if config.MODEL_BASE_URL else None,
+              "sha256": records.get(n, {}).get("sha256"), "size_bytes": records.get(n, {}).get("size_bytes")}
              for n in names]
     return ModelInfo(version=config.MODEL_VERSION, files=files)
