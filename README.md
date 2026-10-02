@@ -56,6 +56,19 @@ python -m pytest -q                                      # 테스트 (SQLite)
 DB는 `DATABASE_URL`이 없으면 `sonkkeut.db`(SQLite) 파일을 쓰고, 있으면 Postgres를 씁니다. 테이블은 시작할 때 자동으로 만듭니다.
 테스트는 SQLite와 Postgres 16 양쪽에서 통과했습니다.
 
+## 배포 (Render, 무료)
+
+`render.yaml`(Blueprint)에 웹 서비스와 Postgres가 정의되어 있습니다.
+
+1. Render 대시보드 → **New → Blueprint** → `fingertip-vision/sonkkeut-backend` 선택 → **Apply**
+2. 웹 서비스·DB가 만들어지고 `DATABASE_URL`은 자동 연결, `ADMIN_KEY`는 자동 생성됩니다
+   (Environment 탭에서 확인·변경)
+3. `https://<서비스 주소>/healthz` 가 `{"ok": true, "db": "postgres"}` 이면 끝
+
+무료 플랜 주의: 15분간 요청이 없으면 서버가 잠들어 첫 요청에 약 50초 걸립니다(시연 직전에 한 번 열어 두기).
+무료 Postgres는 만든 지 30일 뒤 만료되므로, 대회 이후에도 쓰려면 유료로 바꾸거나 Neon 같은 무료 DB 주소를 `DATABASE_URL`에 넣으세요.
+앱은 서버가 꺼져 있어도 주문 안내가 그대로 동작합니다.
+
 ## 배포 (Railway)
 
 1. Railway에서 **New Project → Deploy from GitHub repo → `fingertip-vision/sonkkeut-backend`**
