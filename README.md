@@ -55,7 +55,7 @@ python -m pytest -q                                      # 테스트 (SQLite)
 ```
 
 DB는 `DATABASE_URL`이 없으면 `sonkkeut.db`(SQLite) 파일을 쓰고, 있으면 Postgres를 씁니다. 테이블은 시작할 때 자동으로 만듭니다.
-이번 변경은 SQLite로 API 테스트 12개를 통과했습니다. Postgres의 실제 운영 배포 검증은 아직 수행하지 않았습니다.
+이번 변경은 SQLite로 API 테스트 13개를 통과했습니다. Postgres의 실제 운영 배포 검증은 아직 수행하지 않았습니다.
 
 ### 모바일 계약
 
