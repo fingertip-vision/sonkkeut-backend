@@ -4,5 +4,15 @@ __pycache__/
 .pytest_cache/
 *.db
 .env
+.env.*
+*.db-*
+*.sqlite*
+*.key
+*.pem
+*credentials*.json
+demo-store*.json
+backend-process.json
+backend.pid
+*.log
 .idea/
 *.iml

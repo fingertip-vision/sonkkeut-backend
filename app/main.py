@@ -18,12 +18,14 @@ from contextlib import asynccontextmanager
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -32,6 +34,7 @@ from . import config
 from .db import MenuItem, SessionLocal, Store, UsageSession, UsageReceipt, init_db, now
 from .schemas import (MenuItemOut, MenuOut, MenuReplace, ModelInfo, NearbyStore, SessionIn, StoreCreate,
                       StoreCreated, StoreOut, StoreUpdate, Summary)
+from .security import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -42,6 +45,9 @@ async def lifespan(_app):
 app = FastAPI(title="손끝길 백엔드", version="0.1.0", lifespan=lifespan,
               description="매장 메뉴 등록(F-14), 익명 사용 통계(F-15), 모델 버전 안내. AI 계산은 휴대폰에서 한다.")
 app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS, www_redirect=False)
+app.add_middleware(SecurityHeadersMiddleware)
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -78,7 +84,7 @@ def _store(db: Session, code: str) -> Store:
 
 
 def _is_admin(key: str | None) -> bool:
-    return bool(config.ADMIN_KEY) and key is not None and hmac.compare_digest(key, config.ADMIN_KEY)
+    return bool(config.ADMIN_KEY) and key is not None and hmac.compare_digest(key.encode(), config.ADMIN_KEY.encode())
 
 
 def _require_owner(s: Store, owner_key: str | None, admin_key: str | None = None):
@@ -98,7 +104,8 @@ def _haversine_m(lat1, lng1, lat2, lng2):
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dp, dl = p2 - p1, math.radians(lng2 - lng1)
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
+    # Antipodal points can round to slightly above 1 in floating point.
+    return 2 * r * math.asin(math.sqrt(min(1.0, max(0.0, a))))
 
 
 @app.get("/healthz", tags=["기타"])
@@ -109,7 +116,7 @@ def healthz(db: Session = Depends(get_db)):
 
 @app.get("/", include_in_schema=False)
 def root():
-    return RedirectResponse("/owner")
+    return RedirectResponse("/simulation")
 
 
 @app.get("/owner", include_in_schema=False)
@@ -127,6 +134,11 @@ def kiosk_page():
     return FileResponse(STATIC / "kiosk.html")
 
 
+@app.get("/simulation", include_in_schema=False)
+def simulation_page():
+    return FileResponse(STATIC / "simulation.html")
+
+
 # ---------- 매장 (F-14) ----------
 @app.post("/api/stores", response_model=StoreCreated, status_code=201, tags=["매장"])
 def create_store(body: StoreCreate, db: Session = Depends(get_db)):
@@ -142,9 +154,21 @@ def create_store(body: StoreCreate, db: Session = Depends(get_db)):
 def nearby(lat: float = Query(ge=-90, le=90), lng: float = Query(ge=-180, le=180),
            radius_m: float = Query(300, gt=0, le=5000), db: Session = Depends(get_db)):
     """앱이 현재 위치 근처 매장을 찾을 때. 위치는 저장하지 않는다."""
-    d = radius_m / 111_000  # 위도 1도 ≈ 111km, 대략적인 사각형으로 먼저 거른다
-    rows = db.scalars(select(Store).where(Store.lat.is_not(None), Store.lat.between(lat - d, lat + d),
-                                          Store.lng.between(lng - d * 2, lng + d * 2))).all()
+    angular_radius = radius_m / 6_371_000.0
+    latitude_delta = math.degrees(angular_radius)
+    query = select(Store).where(Store.lat.is_not(None), Store.lng.is_not(None),
+                                Store.lat.between(max(-90, lat - latitude_delta), min(90, lat + latitude_delta)))
+    # Longitude degrees shrink near the poles; the box must also wrap at ±180°.
+    if abs(lat) + latitude_delta < 90:
+        longitude_delta = math.degrees(math.asin(min(1.0, math.sin(angular_radius) / math.cos(math.radians(lat)))))
+        west, east = lng - longitude_delta, lng + longitude_delta
+        if west < -180:
+            query = query.where((Store.lng >= west + 360) | (Store.lng <= east))
+        elif east > 180:
+            query = query.where((Store.lng >= west) | (Store.lng <= east - 360))
+        else:
+            query = query.where(Store.lng.between(west, east))
+    rows = db.scalars(query).all()
     out = []
     for s in rows:
         dist = _haversine_m(lat, lng, s.lat, s.lng)
@@ -231,17 +255,34 @@ def replace_menu(code: str, body: MenuReplace, x_owner_key: str | None = Header(
 
 # ---------- 익명 통계 (F-15) ----------
 _rate: dict[str, deque] = defaultdict(deque)
+_rate_lock = Lock()
+_rate_last_cleanup = 0.0
+_RATE_MAX_CLIENTS = 10_000
 
 
 def _rate_limit(request: Request):
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
-    q = _rate[ip]
+    global _rate_last_cleanup
+    # Proxy headers are interpreted by the configured ASGI server, never by this
+    # handler: an arbitrary caller must not reset its quota by changing XFF.
+    ip = request.client.host if request.client else "?"
     t = time.monotonic()
-    while q and t - q[0] > 60:
-        q.popleft()
-    if len(q) >= config.STATS_RATE_PER_MIN:
-        raise HTTPException(429, "잠시 후 다시 보내 주세요")
-    q.append(t)
+    with _rate_lock:
+        if t - _rate_last_cleanup >= 60:
+            for client_ip, timestamps in list(_rate.items()):
+                while timestamps and t - timestamps[0] >= 60:
+                    timestamps.popleft()
+                if not timestamps:
+                    del _rate[client_ip]
+            _rate_last_cleanup = t
+        if ip not in _rate and len(_rate) >= _RATE_MAX_CLIENTS:
+            raise HTTPException(429, "잠시 후 다시 보내 주세요", headers={"Retry-After": "60"})
+        q = _rate[ip]
+        while q and t - q[0] >= 60:
+            q.popleft()
+        if len(q) >= config.STATS_RATE_PER_MIN:
+            wait_s = max(1, math.ceil(60 - (t - q[0])))
+            raise HTTPException(429, "잠시 후 다시 보내 주세요", headers={"Retry-After": str(wait_s)})
+        q.append(t)
 
 
 @app.post("/api/stats/sessions", status_code=201, tags=["통계"])

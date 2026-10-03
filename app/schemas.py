@@ -1,27 +1,24 @@
 """요청·응답 형식 (앱과 점주 웹이 주고받는 JSON)"""
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 
 class OptionGroup(BaseModel):
-    group: str = Field(max_length=30)
-    values: list[str] = Field(default_factory=list, max_length=20)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    group: str = Field(min_length=1, max_length=30)
+    values: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]] = Field(default_factory=list, max_length=20)
 
 
 class MenuItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     category: str = Field("", max_length=40)
     name: str = Field(min_length=1, max_length=80)
     price: int | None = Field(None, ge=0, le=10_000_000)
     aliases: list[str] = Field(default_factory=list, max_length=20)
     options: list[OptionGroup] = Field(default_factory=list, max_length=10)
     sold_out: bool = False
-
-    @field_validator("name", "category", mode="before")
-    @classmethod
-    def strip(cls, v: str) -> str:
-        return v.strip()
 
     @field_validator("aliases")
     @classmethod
@@ -39,6 +36,7 @@ class MenuItemOut(MenuItemIn):
 
 
 class StoreCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, allow_inf_nan=False)
     name: str = Field(min_length=1, max_length=80)
     address: str | None = Field(None, max_length=200)
     lat: float | None = Field(None, ge=-90, le=90)
@@ -48,6 +46,14 @@ class StoreCreate(BaseModel):
 
 class StoreUpdate(StoreCreate):
     name: str | None = Field(None, min_length=1, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def name_cannot_be_cleared(cls, value):
+        # Omission is allowed in PATCH; an explicit null cannot fit the DB column.
+        if value is None:
+            raise ValueError("매장 이름은 비울 수 없습니다")
+        return value
 
 
 class StoreOut(BaseModel):
@@ -80,6 +86,7 @@ class MenuOut(BaseModel):
 
 
 class MenuReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     items: list[MenuItemIn] = Field(max_length=500)
 
 
