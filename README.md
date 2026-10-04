@@ -14,3 +14,11 @@ Java 21, Spring Boot, MySQL
    - 8080이 사용 중이면 `.env`의 `SERVER_PORT`를 8081 등으로 바꾼다.
 
 테스트는 실제 MySQL에 붙어서 돌기 때문에 3번까지 한 뒤 `./gradlew test`를 실행한다.
+
+## 배포
+
+`main`에 merge되면 GitHub Actions(`.github/workflows/deploy.yml`)가 테스트 → 이미지 빌드(ECR) → EC2 재배포(SSM)를 한다. PR에서는 테스트만 돈다.
+
+- 저장소 변수: `AWS_DEPLOY_ROLE_ARN`(OIDC 배포 역할), `EC2_INSTANCE_ID`
+- 서버: `/opt/sonkkeut/.env`에 `.env.example`의 DB 값과 `ECR_REGISTRY`를 둔다.
+- 인바운드 포트를 열지 않고 Cloudflare 터널로만 노출한다. 주소는 Actions 실행 요약에 나온다.
