@@ -1,78 +1,95 @@
 package com.sonkkeut.backend.stats;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 
-import com.sonkkeut.backend.store.Store;
+import com.sonkkeut.backend.common.JsonColumnConverter;
 
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Converter;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import tools.jackson.core.type.TypeReference;
 
 /**
- * F-15 주문 한 번의 익명 기록. 수용 기준이 "개인을 식별할 수 있는 정보 없음"이라
- * 사용자·기기 식별자, IP, 발화 내용, 주문한 메뉴는 받지도 저장하지도 않는다.
+ * F-15 익명 사용 기록 한 번. 수용 기준이 "개인을 식별할 수 있는 정보 없음"이라
+ * 영상·음성·위치·기기 식별자·IP는 저장하지 않는다. 매장은 FK가 아닌 코드로 남겨, 매장을 지워도 기록은 남는다.
  */
 @Entity
-@Table(name = "usage_session")
+@Table(name = "usage_sessions", indexes = {
+		@Index(columnList = "storeCode"),
+		@Index(columnList = "createdAt") })
 public class UsageSession {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	// 앱이 주문마다 새로 만드는 무작위 값. 재전송된 기록을 두 번 세지 않으려고만 쓴다.
-	@Column(nullable = false, unique = true, length = 36)
-	private String sessionId;
-
-	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "store_id")
-	private Store store;
+	@Column(length = 12)
+	private String storeCode;
 
 	@Column(nullable = false, length = 20)
 	private String appVersion;
 
-	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
-	private SessionResult result;
-
-	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 10)
-	private AppState endState;
+	private String modelVersion;
 
 	@Column(nullable = false)
-	private long durationMs;
+	private boolean completed;
 
 	@Column(nullable = false)
-	private LocalDateTime createdAt;
+	private double durationS;
 
-	@ElementCollection
-	@CollectionTable(name = "usage_error", joinColumns = @JoinColumn(name = "usage_session_id"))
-	private List<UsageError> errors = new ArrayList<>();
+	@Column(nullable = false)
+	private int nSteps;
+
+	@Convert(converter = StepsConverter.class)
+	@Column(nullable = false, columnDefinition = "text")
+	private List<StepIn> steps;
+
+	@Column(nullable = false)
+	private Instant createdAt;
 
 	protected UsageSession() {
 	}
 
-	public UsageSession(String sessionId, Store store, String appVersion, SessionResult result, AppState endState,
-			long durationMs, List<UsageError> errors) {
-		this.sessionId = sessionId;
-		this.store = store;
-		this.appVersion = appVersion;
-		this.result = result;
-		this.endState = endState;
-		this.durationMs = durationMs;
-		this.createdAt = LocalDateTime.now();
-		this.errors.addAll(errors);
+	UsageSession(String storeCode, SessionIn in) {
+		this.storeCode = storeCode;
+		this.appVersion = in.appVersion();
+		this.modelVersion = in.modelVersion();
+		this.completed = in.completed();
+		this.durationS = in.durationS();
+		this.nSteps = in.steps().size();
+		this.steps = in.steps();
+		this.createdAt = Instant.now();
+	}
+
+	public boolean isCompleted() {
+		return completed;
+	}
+
+	public double getDurationS() {
+		return durationS;
+	}
+
+	public List<StepIn> getSteps() {
+		return steps;
+	}
+
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
+
+	@Converter
+	static class StepsConverter extends JsonColumnConverter<List<StepIn>> {
+		StepsConverter() {
+			super(new TypeReference<>() {
+			});
+		}
 	}
 }

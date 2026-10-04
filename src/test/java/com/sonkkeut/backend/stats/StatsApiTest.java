@@ -6,7 +6,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,24 +23,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** F-15 기록 수집 → 집계를 실제 DB와 함께 확인한다. DB에 이전 기록이 남아 있으므로 집계는 전후 차이로 본다. */
-@SpringBootTest
+/** F-15 익명 통계를 PR #1(FastAPI)의 테스트와 같은 항목으로 확인한다. 집계는 테스트마다 새로 만든 매장으로 본다. */
+@SpringBootTest(properties = "sonkkeut.admin-key=admin-test")
 @AutoConfigureMockMvc
 class StatsApiTest {
-
-	private static final String FAILED_SESSION = """
-			{
-			  "sessionId": "%s",
-			  "appVersion": "0.1.0",
-			  "result": "FAILED",
-			  "endState": "SE",
-			  "durationMs": 42000,
-			  "errors": [
-			    { "state": "S5", "kind": "WRONG_PRESS", "elapsedMs": 30000 },
-			    { "state": "S4", "kind": "TIMEOUT", "elapsedMs": 41000 }
-			  ]
-			}
-			""";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -44,70 +34,121 @@ class StatsApiTest {
 	@Autowired
 	private JsonMapper jsonMapper;
 
-	private ResultActions send(String body) throws Exception {
-		return mockMvc.perform(post("/api/v1/stats/sessions").contentType(MediaType.APPLICATION_JSON).content(body));
-	}
-
-	private JsonNode summary() throws Exception {
-		String body = mockMvc.perform(get("/api/v1/stats/summary"))
-				.andExpect(status().isOk())
+	private JsonNode makeStore() throws Exception {
+		String response = mockMvc.perform(post("/api/stores").contentType(MediaType.APPLICATION_JSON)
+						.content("{\"name\": \"카페 손끝\"}"))
+				.andExpect(status().isCreated())
 				.andReturn().getResponse().getContentAsString();
-		return jsonMapper.readTree(body);
+		return jsonMapper.readTree(response);
+	}
+
+	private ResultActions send(String body) throws Exception {
+		return mockMvc.perform(post("/api/stats/sessions").contentType(MediaType.APPLICATION_JSON).content(body));
+	}
+
+	private ResultActions storeSummary(JsonNode store) throws Exception {
+		return mockMvc.perform(get("/api/stats/summary").param("store_code", store.get("code").asString())
+				.header("X-Owner-Key", store.get("owner_key").asString()));
+	}
+
+	private static String eventId() {
+		return "session-" + UUID.randomUUID();
 	}
 
 	@Test
-	void 실패한_주문을_보내면_실패_지점과_예외_종류가_집계된다() throws Exception {
-		JsonNode before = summary();
+	void 단계별_기록을_매장별로_집계한다() throws Exception {
+		JsonNode store = makeStore();
+		String body = """
+				{"store_code": "%s", "app_version": "0.1.0", "completed": true, "duration_s": 42.5,
+				 "steps": [
+				   {"screen_type": "menu", "target_kind": "tab", "result": "success", "reach_s": 3.2, "hints": 4},
+				   {"screen_type": "menu", "target_kind": "menu", "result": "fail", "reach_s": 6.0, "fail_reason": "no_change"},
+				   {"screen_type": "option", "target_kind": "button", "result": "success", "reach_s": 2.0}
+				 ]}
+				""".formatted(store.get("code").asString().toLowerCase());
+		send(body).andExpect(status().isCreated()).andExpect(jsonPath("$.ok").value(true));
+		send(body.replace("\"completed\": true", "\"completed\": false").replaceAll("(?s)\"steps\": \\[.*]", "\"steps\": []"))
+				.andExpect(status().isCreated());
+		// 정의되지 않은 판정 값은 거부
+		send("{\"completed\": true, \"duration_s\": 1, \"steps\": [{\"result\": \"maybe\"}]}")
+				.andExpect(status().isUnprocessableContent());
 
-		send(FAILED_SESSION.formatted(UUID.randomUUID())).andExpect(status().isNoContent());
+		mockMvc.perform(get("/api/stats/summary").param("store_code", store.get("code").asString()))
+				.andExpect(status().isUnauthorized());
+		storeSummary(store)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.sessions").value(2))
+				.andExpect(jsonPath("$.completed_rate").value(0.5))
+				.andExpect(jsonPath("$.steps").value(3))
+				.andExpect(jsonPath("$.by_screen.menu.success_rate").value(0.5))
+				.andExpect(jsonPath("$.by_screen.menu.steps").value(2))
+				.andExpect(jsonPath("$.fail_reasons.no_change").value(1))
+				.andExpect(jsonPath("$.fail_reasons.length()").value(1))
+				.andExpect(jsonPath("$.avg_reach_s").value(3.73))
+				.andExpect(jsonPath("$.daily[0].sessions").value(2))
+				.andExpect(jsonPath("$.daily[0].completed").value(1));
 
-		JsonNode after = summary();
-		assertThat(after.get("totalSessions").asLong()).isEqualTo(before.get("totalSessions").asLong() + 1);
-		assertThat(after.get("completedSessions").asLong()).isEqualTo(before.get("completedSessions").asLong());
-		assertThat(after.at("/failuresByState/SE").asLong()).isEqualTo(before.at("/failuresByState/SE").asLong(0) + 1);
-		assertThat(after.at("/errorsByKind/WRONG_PRESS").asLong())
-				.isEqualTo(before.at("/errorsByKind/WRONG_PRESS").asLong(0) + 1);
+		mockMvc.perform(get("/api/stats/summary")).andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.detail").value("전체 통계는 운영자 키가 필요합니다"));
+		String all = mockMvc.perform(get("/api/stats/summary").header("X-Admin-Key", "admin-test"))
+				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		assertThat(jsonMapper.readTree(all).get("sessions").asInt()).isGreaterThanOrEqualTo(2);
 	}
 
 	@Test
-	void 같은_기록을_다시_보내도_한_번만_센다() throws Exception {
-		String body = FAILED_SESSION.formatted(UUID.randomUUID());
-		send(body).andExpect(status().isNoContent());
-		long total = summary().get("totalSessions").asLong();
+	void 재전송은_한_번만_세고_같은_ID에_다른_내용은_409() throws Exception {
+		JsonNode store = makeStore();
+		String body = """
+				{"event_id": "%s", "store_code": "%s", "completed": true, "duration_s": 20,
+				 "steps": [{"screen_type": "menu", "target_kind": "menu", "result": "success"}]}
+				""".formatted(eventId(), store.get("code").asString());
+		send(body).andExpect(status().isCreated()).andExpect(jsonPath("$.duplicate").doesNotExist());
+		send(body).andExpect(status().isCreated()).andExpect(jsonPath("$.duplicate").value(true));
+		storeSummary(store).andExpect(jsonPath("$.sessions").value(1));
 
-		send(body).andExpect(status().isNoContent());
-
-		assertThat(summary().get("totalSessions").asLong()).isEqualTo(total);
+		send(body.replace("\"completed\": true", "\"completed\": false"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.detail").value("다른 통계에 같은 이벤트 ID를 사용할 수 없습니다"));
 	}
 
 	@Test
-	void 완료한_주문은_매장_코드가_틀려도_기록된다() throws Exception {
-		long completed = summary().get("completedSessions").asLong();
-
-		send("""
-				{ "sessionId": "%s", "storeCode": "NOSUCH", "appVersion": "0.1.0",
-				  "result": "COMPLETED", "endState": "S6", "durationMs": 83000 }
-				""".formatted(UUID.randomUUID())).andExpect(status().isNoContent());
-
-		assertThat(summary().get("completedSessions").asLong()).isEqualTo(completed + 1);
+	void 동시에_들어온_재전송도_한_번만_센다() throws Exception {
+		JsonNode store = makeStore();
+		String body = "{\"event_id\": \"%s\", \"store_code\": \"%s\", \"completed\": true, \"duration_s\": 10}"
+				.formatted(eventId(), store.get("code").asString());
+		ExecutorService workers = Executors.newFixedThreadPool(2);
+		try {
+			List<Future<Integer>> results = workers.invokeAll(List.of(
+					() -> send(body).andReturn().getResponse().getStatus(),
+					() -> send(body).andReturn().getResponse().getStatus()));
+			for (Future<Integer> result : results) {
+				assertThat(result.get()).isEqualTo(201);
+			}
+		} finally {
+			workers.shutdown();
+		}
+		storeSummary(store).andExpect(jsonPath("$.sessions").value(1));
 	}
 
 	@Test
-	void 명세에_없는_상태_이름은_400() throws Exception {
-		send("""
-				{ "sessionId": "%s", "appVersion": "0.1.0", "result": "COMPLETED", "endState": "S9", "durationMs": 1 }
-				""".formatted(UUID.randomUUID()))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error").value("malformed request body"));
+	void 개인정보가_될_수_있는_필드와_유한하지_않은_숫자는_거부한다() throws Exception {
+		for (String field : List.of("image", "audio", "device_id", "location", "transcript")) {
+			send("{\"completed\": false, \"duration_s\": 10, \"%s\": \"private\"}".formatted(field))
+					.andExpect(status().isUnprocessableContent())
+					.andExpect(jsonPath("$.detail[0].loc[1]").value(field))
+					.andExpect(jsonPath("$.detail[0].type").value("extra_forbidden"));
+		}
+		send("{\"completed\": false, \"duration_s\": 10, \"steps\": [{\"result\": \"success\", \"finger\": [0, 0]}]}")
+				.andExpect(status().isUnprocessableContent());
+		send("{\"completed\": false, \"duration_s\": \"NaN\"}").andExpect(status().isUnprocessableContent());
+		send("{\"completed\": false, \"duration_s\": 10, \"steps\": [{\"result\": \"success\", \"reach_s\": \"NaN\"}]}")
+				.andExpect(status().isUnprocessableContent());
+		send("{\"event_id\": \"short\", \"completed\": false, \"duration_s\": 10}")
+				.andExpect(status().isUnprocessableContent());
 	}
 
 	@Test
-	void 세션_ID가_UUID가_아니면_400() throws Exception {
-		send("""
-				{ "sessionId": "user-1234", "appVersion": "0.1.0", "result": "COMPLETED", "endState": "S6",
-				  "durationMs": 1 }
-				""")
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error").value("invalid field: sessionId"));
+	void 모르는_매장_코드는_버리고_기록만_남긴다() throws Exception {
+		send("{\"store_code\": \"NOSUCH\", \"completed\": true, \"duration_s\": 5}").andExpect(status().isCreated());
 	}
 }

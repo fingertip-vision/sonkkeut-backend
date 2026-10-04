@@ -1,15 +1,22 @@
 package com.sonkkeut.backend.stats;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.sonkkeut.backend.common.ApiException;
+
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
-/** F-15 익명 사용 통계. 수집은 인증 없이 받고, 요청의 IP 등 보낸 쪽 정보는 저장하지 않는다. */
+/** F-15 익명 사용 통계. 보내기는 누구나, 보기는 점주 키(그 매장)나 운영자 키(전체)가 있어야 한다. */
 @RestController
 public class StatsController {
 
@@ -19,14 +26,32 @@ public class StatsController {
 		this.statsService = statsService;
 	}
 
-	@PostMapping("/api/v1/stats/sessions")
-	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void record(@Valid @RequestBody UsageSessionRequest request) {
-		statsService.record(request);
+	@PostMapping("/api/stats/sessions")
+	@ResponseStatus(HttpStatus.CREATED)
+	public Map<String, Boolean> record(@Valid @RequestBody SessionIn body, HttpServletRequest request) {
+		// 재전송도 성공으로 답해야 앱이 같은 기록을 계속 다시 보내지 않는다.
+		return statsService.record(body, clientIp(request)) ? Map.of("ok", true)
+				: Map.of("ok", true, "duplicate", true);
 	}
 
-	@GetMapping("/api/v1/stats/summary")
-	public StatsSummary summary() {
-		return statsService.summary();
+	@GetMapping("/api/stats/summary")
+	public Summary summary(@RequestParam(name = "store_code", required = false) String storeCode,
+			@RequestParam(defaultValue = "30") int days,
+			@RequestHeader(name = "X-Owner-Key", required = false) String ownerKey,
+			@RequestHeader(name = "X-Admin-Key", required = false) String adminKey) {
+		if (days < 1 || days > 365) {
+			throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "days는 1~365 사이여야 합니다");
+		}
+		return statsService.summary(storeCode == null || storeCode.isBlank() ? null : storeCode, days, ownerKey,
+				adminKey);
+	}
+
+	// 서버는 Cloudflare 터널 뒤에 있어서, 실제 보낸 쪽 주소는 X-Forwarded-For 첫 칸에 있다.
+	private static String clientIp(HttpServletRequest request) {
+		String forwarded = request.getHeader("X-Forwarded-For");
+		if (forwarded != null && !forwarded.isBlank()) {
+			return forwarded.split(",")[0].strip();
+		}
+		return request.getRemoteAddr();
 	}
 }
