@@ -16,7 +16,7 @@ import jakarta.validation.constraints.Size;
  * 정의되지 않은 필드는 전역 설정(fail-on-unknown-properties)으로 422가 된다.
  */
 public record StepIn(
-		@Pattern(regexp = "menu|option|cart|payment|start|unknown") String screenType,
+		@Pattern(regexp = "menu|option|cart|method|payment|start|unknown") String screenType,
 		@Pattern(regexp = "tab|menu|price|button|back|unknown") String targetKind,
 		@NotNull @Pattern(regexp = "success|fail|uncertain|restarted|abandoned") String result,
 		// 목표 지정부터 "지금 누르세요"까지 걸린 초

@@ -55,6 +55,7 @@ class StoreMenuApiTest {
 		String body = "{\"name\": \"카페 손끝\", \"lat\": 35.83, \"lng\": 128.75" + extraJson + "}";
 		String response = mockMvc.perform(post("/api/stores").contentType(MediaType.APPLICATION_JSON).content(body))
 				.andExpect(status().isCreated())
+				.andExpect(header().string("Cache-Control", "no-store"))
 				.andReturn().getResponse().getContentAsString();
 		return jsonMapper.readTree(response);
 	}
@@ -74,6 +75,10 @@ class StoreMenuApiTest {
 		mockMvc.perform(get("/owner")).andExpect(status().isOk()).andExpect(forwardedUrl("/static/owner.html"));
 		mockMvc.perform(get("/dashboard")).andExpect(forwardedUrl("/static/dashboard.html"));
 		mockMvc.perform(get("/kiosk")).andExpect(forwardedUrl("/static/kiosk.html"));
+		mockMvc.perform(get("/simulation")).andExpect(forwardedUrl("/static/simulation.html"));
+		for (String asset : List.of("simulation.html", "simulation.js", "simulation.css")) {
+			mockMvc.perform(get("/static/" + asset)).andExpect(status().isOk());
+		}
 		// 정적 HTML 응답에는 charset이 없어 MockMvc가 ISO-8859-1로 읽으므로, 브라우저처럼 문서의 UTF-8로 읽는다.
 		mockMvc.perform(get("/static/owner.html")).andExpect(status().isOk())
 				.andExpect(result -> assertThat(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
@@ -191,8 +196,8 @@ class StoreMenuApiTest {
 		mockMvc.perform(get("/api/stores").header("X-Admin-Key", "admin-test"))
 				.andExpect(status().isOk()).andExpect(jsonPath("$").isArray());
 		mockMvc.perform(get("/api/models/latest"))
-				.andExpect(jsonPath("$.version").value("2026.10.02"))
-				.andExpect(jsonPath("$.files.length()").value(3))
+				.andExpect(jsonPath("$.version").value("2026.10.03"))
+				.andExpect(jsonPath("$.files.length()").value(5))
 				.andExpect(jsonPath("$.files[0].name").value("m1_screen_corners_int8.onnx"))
 				.andExpect(jsonPath("$.files[0].url").doesNotExist())
 				.andExpect(jsonPath("$.files[0].sha256", Matchers.matchesPattern("[0-9a-f]{64}")))

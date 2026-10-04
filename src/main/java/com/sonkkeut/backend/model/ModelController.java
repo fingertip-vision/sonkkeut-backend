@@ -22,7 +22,8 @@ public class ModelController {
 
 	// 앱이 쓰는 순서대로 고정한다. 매니페스트에 없는 모델은 해시·크기를 null로 돌려준다.
 	private static final List<String> MODEL_NAMES = List.of("m1_screen_corners_int8.onnx",
-			"m2_screen_elements_int8.onnx", "m1r_corner_refiner.onnx");
+			"m2_screen_elements_int8.onnx", "m1r_corner_refiner.onnx", "m3_kiosk_rec_v2.onnx",
+			"whisper-elder-v3-ct2.zip");
 
 	private final String version;
 	private final String baseUrl;
@@ -30,20 +31,22 @@ public class ModelController {
 
 	public ModelController(@Value("${model.version}") String version, @Value("${model.base-url}") String baseUrl,
 			JsonMapper jsonMapper) {
-		this.version = version;
 		this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
 		try (InputStream in = new ClassPathResource("web/model-manifest.json").getInputStream()) {
 			this.manifest = jsonMapper.readTree(in);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
+		this.version = version.isBlank() ? manifest.path("version").asString() : version;
 	}
 
 	@GetMapping("/api/models/latest")
 	public ModelInfo latest() {
 		List<ModelInfo.ModelFile> files = MODEL_NAMES.stream().map(name -> {
 			JsonNode record = find(name);
-			return new ModelInfo.ModelFile(name, baseUrl.isEmpty() ? null : baseUrl + "/" + name,
+			String url = baseUrl.isEmpty() ? (record == null ? null : record.path("url").asString(null))
+					: baseUrl + "/" + name;
+			return new ModelInfo.ModelFile(name, url,
 					record == null ? null : record.get("sha256").asString(),
 					record == null ? null : record.get("size_bytes").asLong());
 		}).toList();

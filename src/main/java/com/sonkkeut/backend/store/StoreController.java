@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.sonkkeut.backend.common.ApiException;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.databind.JsonNode;
 
 /** F-14 매장. 조회·근처 매장·등록은 누구나, 수정·삭제는 점주 키나 운영자 키가 있어야 한다. */
@@ -31,7 +32,8 @@ public class StoreController {
 
 	@PostMapping("/api/stores")
 	@ResponseStatus(HttpStatus.CREATED)
-	public StoreCreated create(@Valid @RequestBody StoreCreate body) {
+	public StoreCreated create(@Valid @RequestBody StoreCreate body, HttpServletResponse response) {
+		response.setHeader("Cache-Control", "no-store");
 		return storeService.create(body);
 	}
 
