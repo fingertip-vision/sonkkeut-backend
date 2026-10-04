@@ -115,7 +115,7 @@
 | `completed` | 필수. 결제 화면까지 갔는가 |
 | `duration_s` | 필수. 0~7200 |
 | `steps` | 최대 200개. 누름 한 번(F-10 판정)마다 하나 |
-| `steps[].screen_type` | `menu`, `option`, `cart`, `payment`, `start`, `unknown`(기본) |
+| `steps[].screen_type` | `menu`, `option`, `cart`, `method`, `payment`, `start`, `unknown`(기본) |
 | `steps[].target_kind` | `tab`, `menu`, `price`, `button`, `back`, `unknown`(기본) |
 | `steps[].result` | 필수. `success`, `fail`, `uncertain`, `restarted`, `abandoned` |
 | `steps[].reach_s` | 목표 지정부터 "지금 누르세요"까지 초. 0~600 |
@@ -155,8 +155,8 @@
  "files": [{"name": "m1_screen_corners_int8.onnx", "url": null, "sha256": "...", "size_bytes": 6097266}, ...]}
 ```
 
-- 모델 3개의 SHA-256·크기는 `src/main/resources/web/model-manifest.json`(AI 저장소 파일 기준)에서 읽음
-- `url`은 `MODEL_BASE_URL`이 있을 때만 채워짐. `null`이면 앱은 APK에 든 모델을 씀
+- 모델 5개의 SHA-256·크기는 `src/main/resources/web/model-manifest.json`(AI 저장소 파일 기준)에서 읽음
+- `url`은 `MODEL_BASE_URL`이 있으면 그 경로를 사용하고, 없으면 매니페스트의 원본 릴리스 주소를 사용. 네 ONNX는 APK에 포함되며 Whisper ZIP은 첫 사용 시 내려받아 기기에서 실행
 
 ## 5. 화면·기타
 
@@ -175,5 +175,5 @@
 | `ADMIN_KEY` | 없음 (운영자 API 잠김) | 운영자 키 |
 | `CORS_ORIGINS` | `*` | 브라우저에서 호출할 수 있는 출처, 쉼표 구분 |
 | `STATS_RATE_PER_MIN` | `30` | IP당 1분 통계 전송 한도 |
-| `MODEL_VERSION` | `2026.10.02` | 앱이 받을 최신 모델 버전 |
+| `MODEL_VERSION` | 매니페스트 버전 (`2026.10.03`) | 앱이 받을 최신 모델 버전 |
 | `MODEL_BASE_URL` | 없음 | 모델 파일 주소 (예: GitHub Release) |

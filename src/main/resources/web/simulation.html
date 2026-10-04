@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>손끝길 · 상세 주문 시뮬레이션</title>
+  <link rel="stylesheet" href="/static/simulation.css">
+  <script defer src="/static/simulation.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/simulation"><span class="brand-mark" aria-hidden="true">◉</span><span>손끝길<small>FINGERTIP VISION · EXPERIENCE LAB</small></span></a>
+    <nav aria-label="체험 도구"><a href="/kiosk">기본 키오스크</a><a href="/owner">메뉴 등록</a><a href="/dashboard">통계</a></nav>
+    <span class="local-pill">● 체험 모드</span>
+  </header>
+  <main class="workspace">
+    <section class="intro">
+      <div><p class="eyebrow">주문부터 결제 화면까지, 한 단계씩 확인</p><h1>손끝 안내 시뮬레이션</h1><p>가상 손끝을 움직여 메뉴 선택, 옵션, 장바구니와 결제 단계를 직접 검증하세요.</p></div>
+      <div class="simulation-note"><strong>모의 AI · 모의 키오스크</strong><span>실제 카메라 인식, AI 추론, 결제는 수행하지 않습니다. 이 화면의 주문과 기록은 브라우저 안에서만 처리합니다.</span></div>
+    </section>
+    <section class="statebar" aria-label="세션 상태">
+      <div id="states" class="states"></div>
+      <div class="session-clock"><span>시뮬레이션 경과</span><strong id="elapsed">00:00.0</strong></div>
+    </section>
+    <div class="lab-grid">
+      <aside class="control-column">
+        <section class="panel scenario-panel">
+          <div class="section-title"><h2>01 주문 시나리오</h2><span>3가지</span></div>
+          <label for="scenario">확인할 흐름</label>
+          <select id="scenario">
+            <option value="coffee">아메리카노 · 포장 · ICE</option>
+            <option value="latte">라떼 · 매장 · LARGE · 2잔</option>
+            <option value="recovery">품절 대체 + 손 유실 복구 + 디저트</option>
+          </select>
+          <p id="scenario-description" class="muted"></p>
+          <div id="scenario-checklist" class="checklist"></div>
+          <div class="button-row"><button id="play" class="primary">▶ 시나리오 실행</button><button id="pause">일시 정지</button></div>
+          <div class="button-row"><button id="next">한 단계 안내</button><button id="reset">새 주문 / 초기화</button></div>
+          <p id="scenario-result" class="small status-text" aria-live="polite">시나리오를 실행하거나 키오스크 버튼을 선택하세요.</p>
+        </section>
+        <section class="panel">
+          <div class="section-title"><h2>02 손끝과 인식</h2><span id="pointer-mode-label">자동 이동</span></div>
+          <label for="pointer-mode">이동 모드</label><select id="pointer-mode"><option value="auto">자동 · 목표 버튼으로 이동</option><option value="manual">수동 · 화면을 드래그 / 방향키</option></select>
+          <label class="range-label" for="speed">이동 속도 <output id="speed-value">180 px/s</output></label><input id="speed" type="range" min="60" max="540" step="30" value="180">
+          <label class="range-label" for="confidence">손끝 추적 신뢰도 <output id="confidence-value">97%</output></label><input id="confidence" type="range" min="0" max="100" value="97">
+          <label class="range-label" for="screen-confidence">화면 인식 신뢰도 <output id="screen-confidence-value">96%</output></label><input id="screen-confidence" type="range" min="0" max="100" value="96">
+          <div class="switch-row"><label><input id="hand-lost" type="checkbox"> 손 유실</label><label><input id="screen-lost" type="checkbox"> 화면 유실</label></div>
+          <p class="small muted">누름 허용: 손끝 75% 이상 · 화면 80% 이상 · 안전 영역 안에서 0.3초 유지. 수동 모드에서는 화면을 한 번 누르면 점이 이동하고 방향키로 미세 조정합니다.</p>
+          <button id="recover" class="full-width">인식 복구 / 다시 안내</button>
+        </section>
+        <section class="panel">
+          <div class="section-title"><h2>03 오류 주입</h2><span>다음 누름 1회</span></div>
+          <div class="fault-buttons"><button data-fault="sold_out">메뉴 품절</button><button data-fault="wrong_click">잘못된 버튼</button><button data-fault="no_change">화면 변화 없음</button></div>
+          <p id="fault-message" class="small muted">오류 발생 후에는 복구 버튼으로 다시 안내합니다. 잘못 누름은 직전 상태로 되돌린 뒤 재계획합니다.</p>
+          <label class="switch-row"><input id="auto-recovery" type="checkbox" checked> 시나리오 실행 중 자동 복구</label>
+        </section>
+      </aside>
+      <section class="kiosk-column">
+        <div class="section-title camera-title"><h2>가상 키오스크</h2><span id="screen-name">주문 시작</span></div>
+        <div id="kiosk" class="kiosk" tabindex="0" aria-label="가상 키오스크. 수동 이동 모드에서는 방향키로 손끝을 움직일 수 있습니다.">
+          <div class="kiosk-header"><strong>카페 손끝</strong><span id="service-label">함께, 편안한 주문</span></div>
+          <div id="kiosk-content"></div>
+          <svg class="guidance-overlay" viewBox="0 0 540 700" aria-hidden="true"><line id="path-line" x1="70" y1="610" x2="70" y2="610"></line><rect id="target-box" width="0" height="0"></rect><rect id="safe-box" width="0" height="0"></rect><circle id="finger-halo" r="24" cx="70" cy="610"></circle><circle id="finger-dot" r="10" cx="70" cy="610"></circle><text id="finger-label" x="90" y="616">손끝</text></svg>
+          <div class="kiosk-footer">가상 화면 540 × 700 · 실제 결제 없음</div>
+        </div>
+        <div class="legend"><span><i class="dot teal"></i>가상 손끝</span><span><i class="outline"></i>목표 버튼</span><span><i class="outline dashed"></i>누름 안전 영역</span></div>
+        <div class="guidance-card">
+          <div class="direction-circle" id="direction-icon" aria-hidden="true">◎</div>
+          <div><p class="eyebrow">현재 안내</p><strong id="guidance-text" aria-live="polite">시나리오 또는 버튼을 선택하세요.</strong><span id="guide-detail" class="muted small">버튼을 선택하면 그 버튼까지 손끝을 안내합니다.</span></div>
+          <button id="voice" aria-pressed="false" aria-label="안내 음성 켜기">음성 꺼짐</button>
+        </div>
+        <div class="telemetry">
+          <div><span>목표까지 거리</span><strong id="distance">—</strong></div><div><span>8방향 안내</span><strong id="direction">대기</strong></div><div><span>안전 영역 유지</span><strong id="dwell">0.00 / 0.30초</strong><div class="progress"><i id="dwell-bar"></i></div></div><div><span>누름 판단</span><strong id="press-state">대기</strong></div>
+        </div>
+        <section class="panel order-panel"><div class="section-title"><h2>현재 장바구니</h2><span id="cart-count">0개</span></div><div id="order-list" class="muted">담긴 메뉴가 없습니다.</div><div class="order-total"><span>총 금액</span><strong id="order-total">0원</strong></div></section>
+      </section>
+      <aside class="inspector-column">
+        <section class="panel plan-panel"><div class="section-title"><h2>이번 단계의 계획</h2><span class="tag">모의 AI 결과</span></div><div id="plan-view" class="muted">버튼 선택 후 목표와 검증 조건이 표시됩니다.</div></section>
+        <section class="panel timeline-panel"><div class="section-title"><h2>이벤트 타임라인</h2><span id="event-count">0건</span></div><ol id="timeline" class="timeline" aria-label="시뮬레이션 이벤트"></ol></section>
+        <section class="panel"><div class="section-title"><h2>관찰 지표</h2><span>이번 세션</span></div><div class="mini-metrics"><div><strong id="success-count">0</strong><span>검증 성공</span></div><div><strong id="error-count">0</strong><span>복구 필요</span></div><div><strong id="recovery-count">0</strong><span>복구 완료</span></div></div></section>
+      </aside>
+    </div>
+    <section class="panel repeat-panel">
+      <div class="section-title"><h2>반복 실행 검증</h2><span>시나리오별 결과 확인</span></div>
+      <div class="repeat-controls"><label for="repeat-count">시나리오별 실행 수</label><select id="repeat-count"><option value="1">1회 · 총 3회</option><option value="5" selected>5회 · 총 15회</option><option value="20">20회 · 총 60회</option></select><button id="run-tests" class="primary">3가지 시나리오 반복 테스트</button><button id="download">현재 세션 JSON 저장</button></div>
+      <p class="small muted">각 실행마다 새 주문을 만들고, 좌표 이동 → 0.3초 안전 유지 → 버튼 적용 → 결과 검증을 연산합니다. 예상 주문의 메뉴·옵션·수량·총액, 중복 결제 방지, 오류 복구 결과를 함께 검사합니다. 실제 AI 모델의 정확도·처리 성능을 나타내는 수치는 아닙니다.</p>
+      <div id="test-results" aria-live="polite" class="test-results">반복 테스트를 실행하면 실행별 합격 여부와 실패 원인을 확인할 수 있습니다.</div>
+    </section>
+    <section class="panel data-panel"><div class="section-title"><h2>구조화된 데이터</h2><span>screen_json · order_json · event_json</span></div><div class="json-grid"><details open><summary>screen_json <span>화면과 버튼 좌표</span></summary><pre id="screen-json"></pre></details><details open><summary>order_json <span>옵션·수량·금액</span></summary><pre id="order-json"></pre></details><details><summary>event_json <span>누름 결과와 복구 기록</span></summary><pre id="event-json"></pre></details></div></section>
+    <footer class="page-footer">화면의 모든 인식 결과와 좌표는 시뮬레이션 입력입니다. 이 체험 화면의 기록은 브라우저 안에서 처리합니다. 모바일 앱·백엔드의 실제 연결 검증은 별도의 API 및 기기 테스트에서 확인합니다.</footer>
+  </main>
+</body>
+</html>

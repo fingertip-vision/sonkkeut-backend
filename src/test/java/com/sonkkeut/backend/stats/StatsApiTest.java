@@ -148,6 +148,21 @@ class StatsApiTest {
 	}
 
 	@Test
+	void 포장_매장_선택_단계도_재전송시_한_번만_집계한다() throws Exception {
+		JsonNode store = makeStore();
+		String body = """
+				{"event_id":"%s", "store_code":"%s", "app_version":"0.1.2",
+				 "model_version":"2026.10.03", "completed":true, "duration_s":20,
+				 "steps":[{"screen_type":"method", "target_kind":"button", "result":"success"}]}
+				""".formatted(eventId(), store.get("code").asString());
+		send(body).andExpect(status().isCreated());
+		send(body).andExpect(status().isCreated()).andExpect(jsonPath("$.duplicate").value(true));
+		storeSummary(store).andExpect(jsonPath("$.sessions").value(1))
+				.andExpect(jsonPath("$.by_screen.method.steps").value(1))
+				.andExpect(jsonPath("$.by_screen.method.success_rate").value(1.0));
+	}
+
+	@Test
 	void 모르는_매장_코드는_버리고_기록만_남긴다() throws Exception {
 		send("{\"store_code\": \"NOSUCH\", \"completed\": true, \"duration_s\": 5}").andExpect(status().isCreated());
 	}
