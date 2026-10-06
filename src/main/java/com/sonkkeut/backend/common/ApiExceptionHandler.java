@@ -6,9 +6,11 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -36,6 +38,21 @@ public class ApiExceptionHandler {
 	@ResponseStatus(HttpStatus.UNPROCESSABLE_CONTENT)
 	ApiError invalid(ValidationException e) {
 		return new ApiError(e.getErrors());
+	}
+
+	/**
+	 * 위에서 따로 다루지 않는 오류. 405·415·없는 경로처럼 Spring이 상태를 정한 오류는 그 상태와 헤더(Allow 등)를
+	 * 그대로 두고 본문만 {"detail"}로 맞춘다. 그 밖의 오류는 내부 정보를 싣지 않고 500으로 답하며 로그에만 남긴다.
+	 */
+	@ExceptionHandler(Exception.class)
+	ResponseEntity<ApiError> other(Exception e) {
+		if (e instanceof ErrorResponse error) {
+			ProblemDetail body = error.getBody();
+			String detail = body.getDetail() != null ? body.getDetail() : body.getTitle();
+			return ResponseEntity.status(error.getStatusCode()).headers(error.getHeaders()).body(new ApiError(detail));
+		}
+		log.error("처리하지 못한 오류", e);
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiError("서버 오류가 발생했습니다"));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)

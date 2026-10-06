@@ -15,8 +15,10 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.sonkkeut.backend.common.ApiException;
+import com.sonkkeut.backend.common.ClientIp;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.databind.JsonNode;
 
@@ -25,14 +27,18 @@ import tools.jackson.databind.JsonNode;
 public class StoreController {
 
 	private final StoreService storeService;
+	private final StoreCreateRateLimiter createRateLimiter;
 
-	public StoreController(StoreService storeService) {
+	public StoreController(StoreService storeService, StoreCreateRateLimiter createRateLimiter) {
 		this.storeService = storeService;
+		this.createRateLimiter = createRateLimiter;
 	}
 
 	@PostMapping("/api/stores")
 	@ResponseStatus(HttpStatus.CREATED)
-	public StoreCreated create(@Valid @RequestBody StoreCreate body, HttpServletResponse response) {
+	public StoreCreated create(@Valid @RequestBody StoreCreate body, HttpServletRequest request,
+			HttpServletResponse response) {
+		createRateLimiter.check(ClientIp.of(request));
 		response.setHeader("Cache-Control", "no-store");
 		return storeService.create(body);
 	}

@@ -24,7 +24,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /** F-15 익명 통계를 PR #1(FastAPI)의 테스트와 같은 항목으로 확인한다. 집계는 테스트마다 새로 만든 매장으로 본다. */
-@SpringBootTest(properties = "sonkkeut.admin-key=admin-test")
+// 매장을 여러 개 만드는 테스트라 등록 한도는 넉넉히 푼다. 한도 자체는 RateLimitTest에서 본다.
+@SpringBootTest(properties = { "sonkkeut.admin-key=admin-test", "store.create-rate-per-min=1000" })
 @AutoConfigureMockMvc
 class StatsApiTest {
 
