@@ -1,3 +1,14 @@
+# 손끝길 · sonkkeut-backend
+
+시각장애인의 키오스크 조작을 돕는 손끝길 서비스의 매장·메뉴·익명 통계 API 저장소입니다.
+
+- [서비스 소개와 전체 구조](docs/service-overview.md)
+- [저장소 간 연동 계약](docs/integration.md)
+- [개발·실행 안내](docs/operations.md)
+- [Fingertip Vision 조직](https://github.com/fingertip-vision)
+
+## 기존 저장소 안내
+
 # sonkkeut-backend
 손끝길 - API 서버, 키오스크 화면 데이터·사용자 관리 백엔드
 
