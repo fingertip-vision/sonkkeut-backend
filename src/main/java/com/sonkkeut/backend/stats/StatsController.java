@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.sonkkeut.backend.common.ApiException;
+import com.sonkkeut.backend.common.ClientIp;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -30,7 +31,7 @@ public class StatsController {
 	@ResponseStatus(HttpStatus.CREATED)
 	public Map<String, Boolean> record(@Valid @RequestBody SessionIn body, HttpServletRequest request) {
 		// 재전송도 성공으로 답해야 앱이 같은 기록을 계속 다시 보내지 않는다.
-		return statsService.record(body, clientIp(request)) ? Map.of("ok", true)
+		return statsService.record(body, ClientIp.of(request)) ? Map.of("ok", true)
 				: Map.of("ok", true, "duplicate", true);
 	}
 
@@ -44,14 +45,5 @@ public class StatsController {
 		}
 		return statsService.summary(storeCode == null || storeCode.isBlank() ? null : storeCode, days, ownerKey,
 				adminKey);
-	}
-
-	// 서버는 Cloudflare 터널 뒤에 있어서, 실제 보낸 쪽 주소는 X-Forwarded-For 첫 칸에 있다.
-	private static String clientIp(HttpServletRequest request) {
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			return forwarded.split(",")[0].strip();
-		}
-		return request.getRemoteAddr();
 	}
 }

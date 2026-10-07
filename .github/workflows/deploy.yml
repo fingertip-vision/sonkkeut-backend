@@ -1,11 +1,14 @@
 name: Test and Deploy
 
 # 팀 저장소 main에 merge될 때만 배포한다. 포크나 다른 브랜치는 테스트만 돈다.
+# 문서만 바뀐 변경은 서버 동작과 무관하므로 테스트·배포를 돌리지 않는다. 필요하면 수동 실행(workflow_dispatch)한다.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
 
 permissions:

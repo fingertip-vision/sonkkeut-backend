@@ -32,7 +32,8 @@ import tools.jackson.databind.json.JsonMapper;
  * F-14 매장·메뉴와 모델 정보 API를 PR #1(FastAPI)의 테스트와 같은 항목으로 확인한다.
  * 실제 MySQL에 이전 실행의 데이터가 남아 있으므로, 테스트마다 매장을 새로 만들어 그 매장만 본다.
  */
-@SpringBootTest(properties = "sonkkeut.admin-key=admin-test")
+// 매장을 여러 개 만드는 테스트라 등록 한도는 넉넉히 푼다. 한도 자체는 RateLimitTest에서 본다.
+@SpringBootTest(properties = { "sonkkeut.admin-key=admin-test", "store.create-rate-per-min=1000" })
 @AutoConfigureMockMvc
 class StoreMenuApiTest {
 
@@ -223,5 +224,19 @@ class StoreMenuApiTest {
 						.header("Access-Control-Request-Headers", "x-owner-key,content-type"))
 				.andExpect(status().isOk())
 				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+	}
+
+	@Test
+	void Spring이_정한_오류도_detail_형식으로_답한다() throws Exception {
+		mockMvc.perform(delete("/api/stats/sessions"))
+				.andExpect(status().isMethodNotAllowed())
+				.andExpect(header().exists("Allow"))
+				.andExpect(jsonPath("$.detail").isString());
+		mockMvc.perform(post("/api/stores").contentType(MediaType.TEXT_PLAIN).content("카페"))
+				.andExpect(status().isUnsupportedMediaType())
+				.andExpect(jsonPath("$.detail").isString());
+		mockMvc.perform(get("/api/no-such-path"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.detail").isString());
 	}
 }
